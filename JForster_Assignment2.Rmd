@@ -1,0 +1,171 @@
+---
+title: "Data605 Assignment2"
+author: 'jfor: Josh Forster'
+date: "2023-02-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pracma)
+library(tidyverse)
+```
+
+(1) Show that \[\mathbf{A}^T \mathbf{A} \neq \mathbf{A} \mathbf{A}^T\] in general. (Proof and demonstration.)
+
+1) IF \[m \neq n\] then the dot product will result in different row and column dimensions
+
+\[\mathbf{A}  {m\times n} \times \mathbf{A}  {n\times m} = \mathbf{B} {m\times m} \]
+\[
+\mathbf{A}  {n\times m} \times \mathbf{A}  {m\times n} = \mathbf{B} {n\times n} \]
+
+```{r m_equal_to_n}
+a<- matrix(c(1,2,3,4,2,3,4,5,4,5,6,7),ncol=3,nrow=4)
+print(a %*% t(a))
+print(t(a) %*% a)
+
+```
+
+2) IF \[m = n\] 
+
+given the transformation that occurs with matrix multiplication if \[1\leq i\leq n \neq 1\leq j\leq n\] for one non-diagnoal value the dot product will result in a different resulting matrix
+
+```{r}
+square <- matrix(c(1,2,3,4,5,6,7,8,9),ncol=3,nrow=3)
+print(square %*% t(square))
+print(t(square)%*%square)
+
+```
+
+(2) For a special type of square matrix A, we get \[\mathbf{A}^T \mathbf{A} = \mathbf{A} \mathbf{A}^T\] . Under what conditions
+could this be true? (Hint: The Identity matrix I is an example of such a matrix).
+
+The symmetric matrix is the only type of matrix where this conditions will hold true and   the identity matrix is a one example of this type of matrix. The matrix is equal to it's transpose \[\mathbf{A}^T = \mathbf{A} \] so it is as if this is squaring the matrix \[\mathbf{A}^2\]
+
+```{rsymmetric example from text}
+sym_mat <- matrix(c(2,3,-9,5,7,3,1,6,-2,-3,-9,6,0,-1,9,5,-2,-1,4,-8,7,-3,9,-8,-3),nrow=5,ncol=5)
+print(sym_mat %*% t(sym_mat) == t(sym_mat) %*% sym_mat)
+```
+
+Matrix factorization is a very important problem. There are supercomputers built just to do matrix factorizations. Every second you are on an airplane, matrices are being factorized. Radars that track flights use a technique called Kalman filtering. At the heart of Kalman Filtering is a Matrix Factorization operation. Kalman Filters are solving linear systems of equations when they track your flight using radars.
+Write an R function to factorize a square matrix A into LU or LDU, whichever you prefer.
+
+```{r}
+mat2 <- matrix(c(1,-2,3,4,8,4,-3,5,7),ncol=3,nrow=3,byrow=FALSE)
+pracma::rref(mat2)
+mat3 <- matrix(c(2,1,-6,4,-4,-9,-4,3,5),ncol=3,nrow=3,byrow=FALSE)
+pracma::rref(mat3)
+```
+
+#### LU Decomposition
+
+Each step depicts the row equivalent matrix as the row operation is applied to the original inputted matrix.
+
+```{r lu_decomposition}
+
+find_row_op <- function(vec,div,row_pos,col_pos,row_order){
+
+    ops <- data.frame(cbind(-div/vec,row_order,rep.int(row_pos,length(vec)),rep.int(col_pos,length(vec))))
+    colnames(ops)<-c('multiple','row_used','row_applied','col_applied')
+    ops <- ops |> filter(row_used != row_pos) |> 
+        mutate(first_rank=if_else(multiple==0,3,if_else(multiple %% 1==0,1,nchar(str_replace(as.character(multiple),'\\-?\\d.(\\d+)','\\1'))+1))) |>
+        arrange(first_rank,abs(multiple)) |> 
+        head(1)
+    
+    return(ops)
+}
+
+apply_row_op<- function(df,matr){
+   return(matr[df$row_used,] * df$multiple + matr[df$row_applied,])
+}
+
+lu_decomp<- function(mata) {
+    if (det(mata)==0) {
+        print("This matrix cannot be inverted and cannot be transformed using LU decomposition")
+    } else {
+    counter = 1
+    upper <- mata #[,]
+    rownames(upper) <- seq(1,nrow(upper))
+    upper_order <- cbind(upper,seq(1,nrow(upper)))
+    lower <- diag(x=1,nrow=nrow(upper),ncol=ncol(upper))
+    row_ops <- data.frame()
+    for (j in 1:ncol(upper)){
+    
+        for (i in 1:nrow(upper)){
+            if (i>j & upper[i,j] != 0) {
+                if (nrow(row_ops)==0) {
+                    cur_row_ops <- find_row_op(vec=upper[,j],div=upper[i,j],row_pos=i,col_pos=j,row_order=c(as.numeric(unlist(rownames(upper))))) 
+                } else if (nrow(row_ops |> filter(row_applied == i))>0) {
+                     sub_df <- row_ops |> filter(row_applied == i)
+                     sub_rows = upper[upper[,max(sub_df$col_applied)]==0,]
+                     sub_mat <- upper[c(rownames(sub_rows)),]
+
+                     cur_row_ops <- find_row_op(vec=sub_mat[,j],div=upper[i,j],row_pos=i,col_pos=j,row_order=c(as.numeric(unlist(rownames(sub_mat)))))
+                } else {
+                    cur_row_ops <- find_row_op(vec=upper[,j],div=upper[i,j],row_pos=i,col_pos=j,row_order=c(as.numeric(unlist(rownames(upper)))))
+                }
+                cur_row_ops$order <- counter
+                print(cur_row_ops)
+                lower[cur_row_ops$row_applied,cur_row_ops$col_applied] <- -cur_row_ops$multiple
+                row_ops <- rbind(row_ops,cur_row_ops)
+                upper[cur_row_ops$row_applied,] <- apply_row_op(df=cur_row_ops,matr=upper)
+                counter = counter + 1
+                print(upper)
+            }
+        }
+    }
+    return(list(lower,upper)) 
+    }
+    }
+```
+
+
+#### 3x3 Matrix Testing
+
+```{r function_testing}
+mat2_orig <- matrix(c(1,-2,3,4,8,4,-3,5,7),ncol=3,nrow=3,byrow=FALSE)
+mat2 <- matrix(c(2,1,-6,4,-4,-9,-4,3,5),ncol=3,nrow=3,byrow=FALSE)
+test <- matrix(c(4,6,5,6),nrow=2,ncol=2)
+t_results <- lu_decomp(mat2_orig)
+print(t_results[[1]])
+
+print(t_results[[2]])
+
+print(t_results[[1]] %*% t_results[[2]])
+
+print(t_results[[1]] %*% t_results[[2]] == mat2_orig)
+```
+
+#### 4x4 Matrix Testing
+
+```{r}
+
+mat_ex <- matrix(c(2,2,-3,6,2,1,-5,5,-2,6,-1,3,8,-3,2,5),nrow=4,ncol=4)
+print(mat_ex)
+lu <- lu_decomp(mat_ex)
+print('Lower:')
+print(lu[[1]]) 
+print('Upper:') 
+print(lu[[2]])
+
+lu[[1]] %*% lu[[2]]
+```
+
+#### Additional Matrix Testing
+
+```{r}
+mat_ex2 <- matrix(c(4,2,-3,6,-4,1,-3,2,-2,6,-1,3,5,-3,2,5),nrow=4,ncol=4)
+print(mat_ex2)
+lu2 <- lu_decomp(mat_ex2)
+print('Lower:')
+print(lu2[[1]]) 
+print('Upper:') 
+print(lu2[[2]])
+
+print(lu2[[1]] %*% lu2[[2]])
+
+```
+
+I believe some of the discrepancy in the end result when applying my LU decomposition \[ \mathbf{A} = \mathbf{L}\mathbf{U} \] is due to some rounding after applying row operations in the lower and upper matrices that causes differences after matrix multiplication.
+
+
